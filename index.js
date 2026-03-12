@@ -27,8 +27,9 @@ async function run() {
         // Connect the client to the server	(optional starting in v4.7)
         await client.connect();
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
+        const RegisterCollection =client.db("RegisterDB").collection("Register")
 
-        // admin post data
+        // admin  data
         app.post('/Addfood',async(req,res)=>{
             const data =req.body;
             const result =await FoodCollection.insertOne(data);
@@ -81,6 +82,68 @@ async function run() {
             } catch (error) {
                 console.error("Update error:", error);
                 res.status(500).json({ message: "Server error", error: error.message });
+            }
+        });
+
+        app.post('/register',async(req,res)=>{
+            const userData =req.body;
+            const result =await RegisterCollection.insertOne(userData)
+            res.send(result)
+        })
+
+        app.get('/register',async(req,res)=>{
+            const result =await RegisterCollection.find().toArray();
+            res.send(result)
+        })
+
+        app.delete('/register/:id',async(req,res)=>{
+            const id =req.params.id;
+            const filter ={_id : new ObjectId(id)}
+            const result =await RegisterCollection.deleteOne(filter)
+            res.send(result)
+        })
+
+        app.put('/register/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { role } = req.body;
+
+                const filter = { _id: new ObjectId(id) };
+                const updateRole = {  
+                    $set: {
+                        role: role
+                    }
+                };
+
+                const result = await RegisterCollection.updateOne(filter, updateRole); 
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "User not found"
+                    });
+                }
+
+                if (result.modifiedCount === 0) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "User already has this role"
+                    });
+                }
+
+                res.status(200).json({
+                    success: true,
+                    message: "User role updated successfully",
+                    modifiedCount: result.modifiedCount
+                });
+
+            } catch (error) {
+                console.error("Error updating user role:", error);
+                res.status(500).json({
+                    success: false,
+                    message: "Server error",
+                    error: error.message
+                });
             }
         });
 
