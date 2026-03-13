@@ -28,6 +28,7 @@ async function run() {
         await client.connect();
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
+        const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
 
         // admin  data
         app.post('/Addfood',async(req,res)=>{
@@ -146,6 +147,28 @@ async function run() {
                 });
             }
         });
+
+        //user api 
+
+        app.post('/buyFood',async(req,res)=>{
+            const Fooddata =req.body;
+            const result =await BuyCollection.insertOne(Fooddata);
+            res.send(result)
+        })
+
+        app.get('/buyFood/:email',async(req,res)=>{
+            const email =req.params.email;
+            const query ={email : email}
+            const result =await BuyCollection.find(query).toArray();
+            res.send(result)
+        })
+
+        app.delete('/buyFood/:id',async(req,res)=>{
+            const id =req.params.id;
+            const query ={_id : new ObjectId(id)}
+            const result =await BuyCollection.deleteOne(query)
+            res.send(result);
+        })
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
