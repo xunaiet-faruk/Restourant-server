@@ -5,6 +5,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // middleware
+
 app.use(cors());
 app.use(express.json());
 
@@ -28,6 +29,7 @@ async function run() {
         await client.connect();
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
+        const ProfileCollection = client.db("RegisterDB").collection("profiles");
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
 
         // admin  data
@@ -169,6 +171,47 @@ async function run() {
             const result =await BuyCollection.deleteOne(query)
             res.send(result);
         })
+
+
+        // Update user profile
+        app.put('/profile/update', async (req, res) => {
+            try {
+                const { email, name, photo } = req.body;
+
+                if (!email) {
+                    return res.status(400).send({ message: "Email is required" });
+                }
+
+                const filter = { email: email };
+                const updateDoc = {
+                    $set: {
+                        name: name,
+                        photo: photo,
+                        updatedAt: new Date()
+                    }
+                };
+
+                const result = await ProfileCollection.updateOne(filter, updateDoc, { upsert: true });
+
+                if (result.modifiedCount > 0 || result.upsertedCount > 0) {
+                    res.send({
+                        success: true,
+                        message: "Profile updated successfully"
+                    });
+                } else {
+                    res.send({
+                        success: true,
+                        message: "No changes made"
+                    });
+                }
+
+            } catch (error) {
+                res.status(500).send({
+                    success: false,
+                    message: error.message
+                });
+            }
+        });
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
