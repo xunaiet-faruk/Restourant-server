@@ -149,6 +149,33 @@ async function run() {
             }
         });
 
+        app.get('/manageProuct', async (req, res) => {
+            const result = await BuyCollection.find().toArray();
+            res.send(result)
+        })
+
+        app.delete('/manageProuct/:id',async(req,res)=>{
+            const id =req.params.id;
+            const filter ={_id : new ObjectId(id)}
+            const result =await BuyCollection.deleteOne(filter)
+            res.send(result)
+        })
+
+        app.put('/manageProduct/:id',async(req,res)=>{
+            const id =req.params.id;
+            const {status } =req.body;
+            const filter ={_id : new ObjectId(id)}
+            const updatedStatus ={
+                $set:{
+                    status : status
+                }
+            }
+            const result =await BuyCollection.updateOne(filter,updatedStatus)
+            res.send(result)
+
+        })
+
+
         //user api 
 
         app.post('/buyFood',async(req,res)=>{
