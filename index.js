@@ -29,7 +29,6 @@ async function run() {
         await client.connect();
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
-        const ProfileCollection = client.db("RegisterDB").collection("profiles");
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
 
         // admin  data
@@ -172,46 +171,31 @@ async function run() {
             res.send(result);
         })
 
+      // user updated data 
+        app.get('/user/:email', async (req, res) => {
+            const email = req.params.email;
+            const result = await RegisterCollection.findOne({ email: email });
+            res.send(result);
+        })
+        app.put('/register', async (req, res) => {
 
-        // Update user profile
-        app.put('/profile/update', async (req, res) => {
-            try {
-                const { email, name, photo } = req.body;
+            const { email, name, photoURL } = req.body
 
-                if (!email) {
-                    return res.status(400).send({ message: "Email is required" });
+            const filter = { email: email }
+
+            const updateDoc = {
+                $set: {
+                    name: name,
+                    image: photoURL
                 }
-
-                const filter = { email: email };
-                const updateDoc = {
-                    $set: {
-                        name: name,
-                        photo: photo,
-                        updatedAt: new Date()
-                    }
-                };
-
-                const result = await ProfileCollection.updateOne(filter, updateDoc, { upsert: true });
-
-                if (result.modifiedCount > 0 || result.upsertedCount > 0) {
-                    res.send({
-                        success: true,
-                        message: "Profile updated successfully"
-                    });
-                } else {
-                    res.send({
-                        success: true,
-                        message: "No changes made"
-                    });
-                }
-
-            } catch (error) {
-                res.status(500).send({
-                    success: false,
-                    message: error.message
-                });
             }
-        });
+
+            const result = await RegisterCollection.updateOne(filter, updateDoc)
+
+            res.send(result)
+
+        })
+      
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
