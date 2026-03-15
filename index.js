@@ -31,6 +31,13 @@ async function run() {
         const RegisterCollection =client.db("RegisterDB").collection("Register")
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
 
+        // role baseed access 
+        app.get('/register/role/:email',async(req,res)=>{
+            const email =req.params.email;
+            const result =await RegisterCollection.findOne({email})
+            res.send({role : result?.role})
+        })
+
         // admin  data
         app.post('/Addfood',async(req,res)=>{
             const data =req.body;
