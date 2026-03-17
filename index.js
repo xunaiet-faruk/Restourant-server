@@ -3,7 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
-
+const SSLCommerzPayment = require('sslcommerz-lts')
 // middleware
 
 app.use(cors());
@@ -14,6 +14,11 @@ app.use(express.json());
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.USER_PASS}@cluster0.kwkb8qp.mongodb.net/?appName=Cluster0`;
 
+
+ 
+
+
+
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
     serverApi: {
@@ -23,6 +28,8 @@ const client = new MongoClient(uri, {
     }
 });
 
+
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
@@ -30,6 +37,7 @@ async function run() {
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
+        const PayCollection =client.db("BuyFoodDB").collection("Payfood")
 
         // role baseed access 
         app.get('/register/role/:email',async(req,res)=>{
@@ -229,6 +237,160 @@ async function run() {
             res.send(result)
 
         })
+
+
+        // payment gatway 
+
+        app.post('/create-ssl-payment', async (req, res) => {
+            try {
+                const payment = req.body;
+                const tran_id = new ObjectId().toString();
+                const productNames = payment.products?.map(p => p.name).join(', ') || 'Food Items';
+                const totalAmount = payment.price || 0;
+
+                const store_id = process.env.STORE_ID;
+                const store_passwd = process.env.STORE_PASS;
+                const is_live = false;
+
+                const data = {
+                    store_id,
+                    store_passwd,
+                    total_amount: totalAmount,
+                    currency: 'BDT',
+                    tran_id,
+                    success_url: `http://localhost:3000/payment/success/${tran_id}`,
+                    fail_url: `http://localhost:3000/payment/fail/${tran_id}`,
+                    cancel_url: 'http://localhost:3000/payment/cancel',
+                    ipn_url: 'http://localhost:3000/ipn',
+                    shipping_method: 'Courier',
+                    product_name: productNames,
+                    product_category: 'Food',
+                    product_profile: 'general',
+                    cus_name: payment.cus_name || 'Customer',
+                    cus_email: payment.email,
+                    cus_add1: payment.address || 'Dhaka',
+                    cus_add2: 'Dhaka',
+                    cus_city: payment.city || 'Dhaka',
+                    cus_state: 'Dhaka',
+                    cus_postcode: payment.postalCode || '1000',
+                    cus_country: 'Bangladesh',
+                    cus_phone: payment.phone || '01700000000',
+                    cus_fax: '01711111111',
+                    ship_name: 'Customer Name',
+                    ship_add1: 'Dhaka',
+                    ship_add2: 'Dhaka',
+                    ship_city: 'Dhaka',
+                    ship_state: 'Dhaka',
+                    ship_postcode: 1000,
+                    ship_country: 'Bangladesh',
+                };
+
+                const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
+                const apiResponse = await sslcz.init(data);
+
+                if (apiResponse?.status === 'SUCCESS' && apiResponse?.GatewayPageURL) {
+                    console.log('✅ Redirecting to: ', apiResponse.GatewayPageURL);
+                    const finalOrder = {
+                        payment,
+                        paidStatus: false,
+                        transitionId: tran_id,
+                        createdAt: new Date()
+                    };
+                    const result = await PayCollection.insertOne(finalOrder);
+
+                    res.send({ url: apiResponse.GatewayPageURL });
+                } else {
+                    console.log('❌ SSLCommerz Error:', apiResponse?.failedreason || 'Unknown error');
+                    res.status(500).send({
+                        error: apiResponse?.failedreason || 'Payment initiation failed',
+                        details: apiResponse
+                    });
+                }
+
+            } catch (error) {
+                console.error("❌ Server Error:", error);
+                res.status(500).send({ error: error.message });
+            }
+        });
+
+        app.post('/payment/success/:tranID', async (req, res) => {
+            try {
+                const tranID = req.params.tranID;
+                console.log('✅ Payment Success for Tran ID:', tranID);
+
+                // 1. পেমেন্ট টেবিল আপডেট করুন
+                const paymentResult = await PayCollection.updateOne(
+                    { transitionId: tranID },
+                    {
+                        $set: {
+                            paidStatus: true,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                // 2. পেমেন্ট ডিটেইলস ফেচ করুন
+                const payment = await PayCollection.findOne({ transitionId: tranID });
+
+                if (payment && payment.payment && payment.payment.products) {
+                    const { email, products } = payment.payment;
+
+                    // 3. প্রতিটি প্রোডাক্টের জন্য BuyCollection-এ status আপডেট করুন
+                    for (const product of products) {
+                        await BuyCollection.updateMany(
+                            {
+                                email: email,
+                                foodId: product.foodId,
+                                status: 'pending'  // শুধু পেন্ডিং অর্ডার আপডেট করুন
+                            },
+                            {
+                                $set: {
+                                    status: 'Delivered',
+                                    transactionId: tranID,
+                                    paymentDate: new Date()
+                                }
+                            }
+                        );
+                    }
+
+                    console.log(`✅ Updated ${products.length} orders to Delivered`);
+                }
+
+                // 4. Frontend-এ redirect
+                res.redirect(`http://localhost:5173/dashboard/payment/success/${tranID}`);
+
+            } catch (error) {
+                console.error("❌ Success Callback Error:", error);
+                res.redirect('http://localhost:5173/payment/fail');
+            }
+        });
+
+     
+        app.post('/payment/fail/:tranID', async(req, res) => {
+           const result =await PayCollection.deleteOne({transitionId:req.params.tranID})
+           if(result.deletedCount){
+               res.redirect(`http://localhost:5173/dashboard/payment/fail/${req.params.tranID}`);
+           }
+        });
+
+      
+       
+        app.get('/payment/history/:email', async (req, res) => {
+            try {
+                const email = req.params.email;
+
+                const payments = await PayCollection.find({
+                    'payment.email': email,
+                    paidStatus: true
+                }).sort({ createdAt: -1 }).toArray();
+
+                res.send(payments);
+
+            } catch (error) {
+                console.error("Error fetching payment history:", error);
+                res.status(500).send({ error: error.message });
+            }
+        });
       
 
         // Send a ping to confirm a successful connection
