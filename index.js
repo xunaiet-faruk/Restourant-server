@@ -6,7 +6,15 @@ const port = process.env.PORT || 3000;
 const SSLCommerzPayment = require('sslcommerz-lts')
 // middleware
 
-app.use(cors());
+app.use(cors({
+    origin: [
+        "http://localhost:5173",
+        "https://restorant-web.web.app"
+    ],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true
+}))
+
 app.use(express.json());
 
 
