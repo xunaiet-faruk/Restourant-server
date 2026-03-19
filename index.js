@@ -41,7 +41,7 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
@@ -248,17 +248,39 @@ async function run() {
 
 
         // payment gatway 
+     
 
         app.post('/create-ssl-payment', async (req, res) => {
             try {
+               
                 const payment = req.body;
+
+                console.log("🔥 Payment Data:", payment);
+
+              
+                if (!PayCollection) {
+                    console.error("❌ PayCollection not initialized");
+                    return res.status(500).send({
+                        error: "Database not ready"
+                    });
+                }
+
                 const tran_id = new ObjectId().toString();
                 const productNames = payment.products?.map(p => p.name).join(', ') || 'Food Items';
                 const totalAmount = payment.price || 0;
 
                 const store_id = process.env.STORE_ID;
                 const store_passwd = process.env.STORE_PASS;
-                const is_live = false;
+
+                // Check store credentials
+                if (!store_id || !store_passwd) {
+                    console.error("❌ Store credentials missing");
+                    return res.status(500).send({
+                        error: "Payment gateway not configured"
+                    });
+                }
+
+                const is_live = false; 
 
                 const data = {
                     store_id,
@@ -268,7 +290,7 @@ async function run() {
                     tran_id,
                     success_url: `http://localhost:3000/payment/success/${tran_id}`,
                     fail_url: `http://localhost:3000/payment/fail/${tran_id}`,
-                    cancel_url: 'http://localhost:3000/payment/cancel',
+                    cancel_url: `http://localhost:3000/payment/cancel/${tran_id}`,
                     ipn_url: 'http://localhost:3000/ipn',
                     shipping_method: 'Courier',
                     product_name: productNames,
@@ -293,22 +315,30 @@ async function run() {
                     ship_country: 'Bangladesh',
                 };
 
+                console.log("🚀 Sending to SSLCommerz:", data);
+
                 const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
                 const apiResponse = await sslcz.init(data);
 
+                console.log("📥 SSLCommerz Response:", apiResponse);
+
                 if (apiResponse?.status === 'SUCCESS' && apiResponse?.GatewayPageURL) {
                     console.log('✅ Redirecting to: ', apiResponse.GatewayPageURL);
+
                     const finalOrder = {
                         payment,
                         paidStatus: false,
                         transitionId: tran_id,
                         createdAt: new Date()
                     };
+
+                  
                     const result = await PayCollection.insertOne(finalOrder);
+                    console.log("✅ Order saved to DB:", result.insertedId);
 
                     res.send({ url: apiResponse.GatewayPageURL });
                 } else {
-                    console.log('❌ SSLCommerz Error:', apiResponse?.failedreason || 'Unknown error');
+                    console.log('❌ SSLCommerz Error:', apiResponse?.failedreason);
                     res.status(500).send({
                         error: apiResponse?.failedreason || 'Payment initiation failed',
                         details: apiResponse
@@ -317,7 +347,10 @@ async function run() {
 
             } catch (error) {
                 console.error("❌ Server Error:", error);
-                res.status(500).send({ error: error.message });
+                res.status(500).send({
+                    error: error.message,
+                    stack: error.stack
+                });
             }
         });
 
@@ -325,8 +358,6 @@ async function run() {
             try {
                 const tranID = req.params.tranID;
                 console.log('✅ Payment Success for Tran ID:', tranID);
-
-                // 1. পেমেন্ট টেবিল আপডেট করুন
                 const paymentResult = await PayCollection.updateOne(
                     { transitionId: tranID },
                     {
@@ -337,19 +368,17 @@ async function run() {
                     }
                 );
 
-                // 2. পেমেন্ট ডিটেইলস ফেচ করুন
                 const payment = await PayCollection.findOne({ transitionId: tranID });
 
                 if (payment && payment.payment && payment.payment.products) {
                     const { email, products } = payment.payment;
 
-                    // 3. প্রতিটি প্রোডাক্টের জন্য BuyCollection-এ status আপডেট করুন
                     for (const product of products) {
                         await BuyCollection.updateMany(
                             {
                                 email: email,
                                 foodId: product.foodId,
-                                status: 'pending'  // শুধু পেন্ডিং অর্ডার আপডেট করুন
+                                status: 'pending'  
                             },
                             {
                                 $set: {
@@ -377,7 +406,7 @@ async function run() {
         app.post('/payment/fail/:tranID', async(req, res) => {
            const result =await PayCollection.deleteOne({transitionId:req.params.tranID})
            if(result.deletedCount){
-               res.redirect(`http://localhost:5173/dashboard/payment/fail/${req.params.tranID}`);
+               res.redirect(`http://localhost:5173/p/dashboard/payment/fail/${req.params.tranID}`);
            }
         });
 
@@ -386,24 +415,39 @@ async function run() {
         app.get('/payment/history/:email', async (req, res) => {
             try {
                 const email = req.params.email;
-
                 const payments = await PayCollection.find({
                     'payment.email': email,
                     paidStatus: true
                 }).sort({ createdAt: -1 }).toArray();
 
-                res.send(payments);
+                console.log(`📊 Found ${payments.length} payments in PayCollection`);
+                const deliveredOrders = await BuyCollection.find({
+                    email: email,
+                    status: 'Delivered'
+                }).toArray();
+
+                console.log(`📦 Found ${deliveredOrders.length} delivered orders`);
+
+            
+                const response = {
+                    payments: payments,           
+                    orders: deliveredOrders,      
+                    totalSpent: deliveredOrders.reduce((sum, order) => sum + (order.price * order.quantity), 0),
+                    totalOrders: deliveredOrders.length
+                };
+
+                res.send(response);
 
             } catch (error) {
-                console.error("Error fetching payment history:", error);
+                console.error("❌ Error fetching payment history:", error);
                 res.status(500).send({ error: error.message });
             }
         });
       
 
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
