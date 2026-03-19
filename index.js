@@ -42,6 +42,8 @@ async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
         // await client.connect();
+      
+
         const FoodCollection =client.db("RestourantFoodDB").collection("AllFood")
         const RegisterCollection =client.db("RegisterDB").collection("Register")
         const BuyCollection =client.db("BuyFoodDB").collection("Buyfood")
@@ -254,9 +256,6 @@ async function run() {
             try {
                
                 const payment = req.body;
-
-                console.log("🔥 Payment Data:", payment);
-
               
                 if (!PayCollection) {
                     console.error("❌ PayCollection not initialized");
@@ -272,7 +271,6 @@ async function run() {
                 const store_id = process.env.STORE_ID;
                 const store_passwd = process.env.STORE_PASS;
 
-                // Check store credentials
                 if (!store_id || !store_passwd) {
                     console.error("❌ Store credentials missing");
                     return res.status(500).send({
@@ -280,7 +278,7 @@ async function run() {
                     });
                 }
 
-                const is_live = false; 
+                const is_live = true; 
 
                 const data = {
                     store_id,
@@ -288,10 +286,10 @@ async function run() {
                     total_amount: totalAmount,
                     currency: 'BDT',
                     tran_id,
-                    success_url: `http://localhost:3000/payment/success/${tran_id}`,
-                    fail_url: `http://localhost:3000/payment/fail/${tran_id}`,
-                    cancel_url: `http://localhost:3000/payment/cancel/${tran_id}`,
-                    ipn_url: 'http://localhost:3000/ipn',
+                    success_url: `https://restorant-food-server.vercel.app/payment/success/${tran_id}`,
+                    fail_url: `https://restorant-food-server.vercel.app/payment/fail/${tran_id}`,
+                    cancel_url: `https://restorant-food-server.vercel.app/payment/cancel/${tran_id}`,
+                    ipn_url: 'https://restorant-food-server.vercel.app/ipn',
                     shipping_method: 'Courier',
                     product_name: productNames,
                     product_category: 'Food',
@@ -394,11 +392,11 @@ async function run() {
                 }
 
                 // 4. Frontend-এ redirect
-                res.redirect(`http://localhost:5173/dashboard/payment/success/${tranID}`);
+                res.redirect(`https://restorant-web.web.app/dashboard/payment/success/${tranID}`);
 
             } catch (error) {
                 console.error("❌ Success Callback Error:", error);
-                res.redirect('http://localhost:5173/payment/fail');
+                res.redirect('https://restorant-web.web.app/payment/fail');
             }
         });
 
@@ -406,7 +404,7 @@ async function run() {
         app.post('/payment/fail/:tranID', async(req, res) => {
            const result =await PayCollection.deleteOne({transitionId:req.params.tranID})
            if(result.deletedCount){
-               res.redirect(`http://localhost:5173/p/dashboard/payment/fail/${req.params.tranID}`);
+               res.redirect(`https://restorant-web.web.app/dashboard/payment/fail/${req.params.tranID}`);
            }
         });
 
@@ -420,23 +418,9 @@ async function run() {
                     paidStatus: true
                 }).sort({ createdAt: -1 }).toArray();
 
-                console.log(`📊 Found ${payments.length} payments in PayCollection`);
-                const deliveredOrders = await BuyCollection.find({
-                    email: email,
-                    status: 'Delivered'
-                }).toArray();
+                console.log(`✅ Found ${payments.length} payments`);
 
-                console.log(`📦 Found ${deliveredOrders.length} delivered orders`);
-
-            
-                const response = {
-                    payments: payments,           
-                    orders: deliveredOrders,      
-                    totalSpent: deliveredOrders.reduce((sum, order) => sum + (order.price * order.quantity), 0),
-                    totalOrders: deliveredOrders.length
-                };
-
-                res.send(response);
+                res.send(payments);
 
             } catch (error) {
                 console.error("❌ Error fetching payment history:", error);
